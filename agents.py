@@ -109,15 +109,15 @@ def _build_provider_chain() -> list:
 _PROVIDER_CHAIN = _build_provider_chain()
 logger.info(f"LLM provider chain: {[provider_name for _, provider_name, _ in _PROVIDER_CHAIN]}")
 
-
+GLOBAL_BLOCKED_VENDORS = set()
 def _call_llm_json(system_prompt: str, user_prompt: str) -> dict:
     last_error = None
-    blocked_vendors = set()  # ← KEY ADDITION
+    global GLOBAL_BLOCKED_VENDORS  # ← KEY ADDITION
 
     for vendor, provider_name, factory in _PROVIDER_CHAIN:
 
         # 🚫 Skip blocked vendors (e.g. Gemini after rate limit)
-        if vendor in blocked_vendors:
+        if vendor in GLOBAL_BLOCKED_VENDORS:
             continue
 
         llm = factory()
@@ -152,7 +152,7 @@ def _call_llm_json(system_prompt: str, user_prompt: str) -> dict:
                     logger.warning(f"[{provider_name}] Rate limited → blocking vendor '{vendor}'")
 
                     # 🚨 BLOCK ENTIRE VENDOR
-                    blocked_vendors.add(vendor)
+                    GLOBAL_BLOCKED_VENDORS.add(vendor)
 
                     last_error = e
                     break  # move to next provider (different vendor)

@@ -34,17 +34,17 @@ Customer Ticket + Order JSON
    Final Resolution JSON
 ```
 
-## Tech Stack (all free)
+## Tech Stack
 
-| Component     | Technology                              |
-| ------------- | --------------------------------------- |
-| LLM           | Google Gemini 2.5 Flash (free tier)     |
-| Embeddings    | `all-MiniLM-L6-v2` (local, HuggingFace) |
-| Vector DB     | FAISS (local)                           |
-| Orchestration | LangGraph                               |
-| Framework     | LangChain                               |
-| API           | FastAPI                                 |
-| UI            | Streamlit                               |
+| Component     | Technology              |
+| ------------- | ----------------------- |
+| LLM           | Google Gemini 2.5 Flash |
+| Embeddings    | `all-MiniLM-L6-v2`      |
+| Vector DB     | FAISS (local)           |
+| Orchestration | LangGraph               |
+| Framework     | LangChain               |
+| API           | FastAPI                 |
+| UI            | Streamlit               |
 
 ## Setup (3 steps)
 
