@@ -1,20 +1,3 @@
-"""
-graph.py — LangGraph state machine connecting all 4 agents.
-
-Flow:
-  triage → policy_retriever → resolution_writer → compliance
-                                     ↑                  |
-                                     └── retry (max 2) ←┘
-                                                        |
-                                                    finalizer → END
-
-Conditional edges:
-  - compliance PASS  → finalizer → END
-  - compliance FAIL + retries left → resolution_writer (rewrite)
-  - compliance FAIL + no retries  → finalizer (with failure flag) → END
-  - triage flags spam → END immediately
-"""
-
 from langgraph.graph import StateGraph, END
 from typing import Literal
 

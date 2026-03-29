@@ -10,3 +10,5 @@ __pycache__/
 
 # Vectorstore generated files
 data/vectorstore/
+
+*.json

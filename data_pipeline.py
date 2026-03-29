@@ -1,18 +1,3 @@
-"""
-data_pipeline.py — Build the FAISS vector store from policy documents.
-
-Run once before starting the agent system:
-    python data_pipeline.py
-
-Design decisions:
-- Chunk size: 400 tokens, overlap: 80 tokens
-  Why: Policy docs have self-contained rules. 400 tokens = ~300 words, enough
-  context for a complete rule. Overlap ensures rules that span chunk boundaries
-  are still retrievable.
-- Embedding: all-MiniLM-L6-v2 — fast, free, strong semantic quality for
-  support/policy domain text. No API key needed.
-"""
-
 import os
 import json
 import pickle

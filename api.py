@@ -1,9 +1,3 @@
-"""
-api.py — FastAPI REST interface for the support agent pipeline.
-
-Run: uvicorn api:app --reload --port 8000
-"""
-
 import time
 import logging
 from typing import Optional

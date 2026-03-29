@@ -1,7 +1,3 @@
-"""
-schemas.py — All Pydantic models for agent I/O.
-These are the contracts between agents. Strict types prevent silent failures.
-"""
 from __future__ import annotations
 from typing import Literal, Optional
 from pydantic import BaseModel, Field

@@ -1,9 +1,3 @@
-"""
-retriever.py — FAISS-backed semantic search over policy documents.
-
-Loaded once at startup and reused across all agent calls.
-"""
-
 import os
 import pickle
 from pathlib import Path

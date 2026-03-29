@@ -1,37 +1,42 @@
 """
 evaluate.py — Run 20 test cases and compute evaluation metrics.
 
-Metrics:
-- Decision accuracy (vs expected)
-- Citation presence rate
-- Hallucination flag rate (from compliance agent)
-- Clarifying question rate (when info is missing)
-- Escalation accuracy
-- Processing time per ticket
-
 Run: python evaluate.py
-Results saved to: evaluation_results.json
+     python evaluate.py --delay 6     ← increase delay between cases
+     python evaluate.py --fast        ← no delay (only safe with Groq keys)
 """
 
 import json
 import time
+import argparse
 import statistics
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from graph import run_pipeline
 
-# ─── 20 Test Cases ────────────────────────────────────────────────────────────
+# ─── CLI Args ─────────────────────────────────────────────────────────────────
+parser = argparse.ArgumentParser()
+parser.add_argument("--delay", type=float, default=4.0,
+                    help="Seconds between test cases (default: 4)")
+parser.add_argument("--fast", action="store_true",
+                    help="No inter-case delay (use only with Groq API key)")
+args, _ = parser.parse_known_args()
 
-def days_ago(n):
+INTER_CASE_DELAY = 0 if args.fast else args.delay
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
+def days_ago(n: int) -> str:
     return (datetime.now() - timedelta(days=n)).strftime("%Y-%m-%d")
 
 
+# ─── 20 Test Cases ────────────────────────────────────────────────────────────
+
 TEST_CASES = [
-    # ── REFUND CASES ──
     {
         "id": "TC-001",
-        "description": "Refund request within 30-day window — should APPROVE",
+        "description": "Refund within 30-day window — APPROVE",
         "expected_decision": "approve",
         "expected_has_citations": True,
         "expected_clarifying_questions": False,
@@ -47,7 +52,7 @@ TEST_CASES = [
     },
     {
         "id": "TC-002",
-        "description": "Refund request outside 60-day window — should DENY",
+        "description": "Refund outside 60-day window — DENY",
         "expected_decision": "deny",
         "expected_has_citations": True,
         "expected_clarifying_questions": False,
@@ -63,7 +68,7 @@ TEST_CASES = [
     },
     {
         "id": "TC-003",
-        "description": "Refund 35-45 days — should be PARTIAL (store credit only)",
+        "description": "Refund 31-60 days — store credit only (PARTIAL)",
         "expected_decision": "partial",
         "expected_has_citations": True,
         "expected_clarifying_questions": False,
@@ -79,7 +84,7 @@ TEST_CASES = [
     },
     {
         "id": "TC-004",
-        "description": "Digital download refund — should DENY (non-returnable)",
+        "description": "Digital download refund — DENY (non-returnable)",
         "expected_decision": "deny",
         "expected_has_citations": True,
         "expected_clarifying_questions": False,
@@ -93,11 +98,9 @@ TEST_CASES = [
             "carrier": None, "tracking_number": None,
         },
     },
-
-    # ── DAMAGED ITEM CASES ──
     {
         "id": "TC-005",
-        "description": "Damaged item within 7-day report window — should APPROVE",
+        "description": "Damaged item within 7-day report window — APPROVE",
         "expected_decision": "approve",
         "expected_has_citations": True,
         "expected_clarifying_questions": False,
@@ -113,7 +116,7 @@ TEST_CASES = [
     },
     {
         "id": "TC-006",
-        "description": "Damaged item report after 7 days — need_more_info or escalate",
+        "description": "Damaged item reported after 7 days — ESCALATE",
         "expected_decision": "escalate",
         "expected_has_citations": True,
         "expected_clarifying_questions": False,
@@ -127,11 +130,9 @@ TEST_CASES = [
             "carrier": "USPS", "tracking_number": "TRK006",
         },
     },
-
-    # ── SHIPPING CASES ──
     {
         "id": "TC-007",
-        "description": "Lost package claim within 60 days — should APPROVE",
+        "description": "Lost package within 60 days — APPROVE",
         "expected_decision": "approve",
         "expected_has_citations": True,
         "expected_clarifying_questions": False,
@@ -147,7 +148,7 @@ TEST_CASES = [
     },
     {
         "id": "TC-008",
-        "description": "Package marked delivered but not received — need investigation",
+        "description": "Package marked delivered but not received — ESCALATE (carrier investigation)",
         "expected_decision": "escalate",
         "expected_has_citations": True,
         "expected_clarifying_questions": False,
@@ -161,11 +162,9 @@ TEST_CASES = [
             "carrier": "UPS", "tracking_number": "TRK008",
         },
     },
-
-    # ── CANCELLATION CASES ──
     {
         "id": "TC-009",
-        "description": "Cancellation within 1 hour — should APPROVE",
+        "description": "Cancellation within 1 hour — APPROVE",
         "expected_decision": "approve",
         "expected_has_citations": True,
         "expected_clarifying_questions": False,
@@ -181,7 +180,7 @@ TEST_CASES = [
     },
     {
         "id": "TC-010",
-        "description": "Cancel order already shipped — should DENY cancellation, redirect to return",
+        "description": "Cancel already-shipped order — DENY, redirect to return",
         "expected_decision": "deny",
         "expected_has_citations": True,
         "expected_clarifying_questions": False,
@@ -195,11 +194,9 @@ TEST_CASES = [
             "carrier": "FedEx", "tracking_number": "TRK010",
         },
     },
-
-    # ── WRONG ITEM CASES ──
     {
         "id": "TC-011",
-        "description": "Wrong item shipped — our error, should APPROVE full resolution",
+        "description": "Wrong item shipped — our error, APPROVE full resolution",
         "expected_decision": "approve",
         "expected_has_citations": True,
         "expected_clarifying_questions": False,
@@ -213,11 +210,9 @@ TEST_CASES = [
             "carrier": "USPS", "tracking_number": "TRK011",
         },
     },
-
-    # ── MISSING INFO CASES ──
     {
         "id": "TC-012",
-        "description": "Vague refund request with no delivery date — need_more_info",
+        "description": "Vague refund request, missing delivery date — NEED_MORE_INFO",
         "expected_decision": "need_more_info",
         "expected_has_citations": False,
         "expected_clarifying_questions": True,
@@ -231,11 +226,9 @@ TEST_CASES = [
             "carrier": "FedEx", "tracking_number": "TRK012",
         },
     },
-
-    # ── PAYMENT CASES ──
     {
         "id": "TC-013",
-        "description": "Billing dispute within 60 days — should ESCALATE for investigation",
+        "description": "Billing dispute, overcharged — ESCALATE for investigation",
         "expected_decision": "escalate",
         "expected_has_citations": True,
         "expected_clarifying_questions": False,
@@ -249,15 +242,13 @@ TEST_CASES = [
             "carrier": "UPS", "tracking_number": "TRK013",
         },
     },
-
-    # ── HIGH VALUE ORDER ──
     {
         "id": "TC-014",
-        "description": "High-value order ($600+) with damage — should ESCALATE per policy",
+        "description": "High-value order ($750) damaged — ESCALATE per compensation policy",
         "expected_decision": "escalate",
         "expected_has_citations": True,
         "expected_clarifying_questions": False,
-        "ticket": "My laptop arrived with a cracked screen. The box was fine but the screen is damaged. I want a full refund of $750.",
+        "ticket": "My laptop arrived with a cracked screen. I want a full refund of $750.",
         "order": {
             "order_id": "ORD-014", "customer_name": "Noah Clark",
             "customer_email": "noah@test.com", "order_date": days_ago(4),
@@ -267,11 +258,9 @@ TEST_CASES = [
             "carrier": "FedEx", "tracking_number": "TRK014",
         },
     },
-
-    # ── SPAM / IRRELEVANT ──
     {
         "id": "TC-015",
-        "description": "Spam message — should handle gracefully",
+        "description": "Spam message — handle gracefully",
         "expected_decision": "escalate",
         "expected_has_citations": False,
         "expected_clarifying_questions": False,
@@ -285,15 +274,13 @@ TEST_CASES = [
             "carrier": None, "tracking_number": None,
         },
     },
-
-    # ── PARTIAL REFUND CASE ──
     {
         "id": "TC-016",
-        "description": "Partial order issue — one item damaged, rest fine",
+        "description": "Partial order issue — one item damaged, rest fine (PARTIAL)",
         "expected_decision": "partial",
         "expected_has_citations": True,
         "expected_clarifying_questions": False,
-        "ticket": "I ordered 3 items and 2 arrived fine, but the third one (the vase) arrived broken. I only want a refund for the broken item.",
+        "ticket": "I ordered 3 items. Two arrived fine but the vase arrived broken. I only want a refund for the broken item.",
         "order": {
             "order_id": "ORD-016", "customer_name": "Peter Hall",
             "customer_email": "peter@test.com", "order_date": days_ago(6),
@@ -307,11 +294,9 @@ TEST_CASES = [
             "carrier": "USPS", "tracking_number": "TRK016",
         },
     },
-
-    # ── ADDRESS ERROR ──
     {
         "id": "TC-017",
-        "description": "Wrong address provided by customer — policy-based partial replacement",
+        "description": "Wrong address entered by customer — PARTIAL (50% replacement cost)",
         "expected_decision": "partial",
         "expected_has_citations": True,
         "expected_clarifying_questions": False,
@@ -325,11 +310,9 @@ TEST_CASES = [
             "carrier": "FedEx", "tracking_number": "TRK017",
         },
     },
-
-    # ── GENERAL INQUIRY ──
     {
         "id": "TC-018",
-        "description": "General inquiry about return policy — informational response",
+        "description": "General policy inquiry — informational / NEED_MORE_INFO",
         "expected_decision": "need_more_info",
         "expected_has_citations": True,
         "expected_clarifying_questions": False,
@@ -343,11 +326,9 @@ TEST_CASES = [
             "carrier": "USPS", "tracking_number": "TRK018",
         },
     },
-
-    # ── PRICE ADJUSTMENT ──
     {
         "id": "TC-019",
-        "description": "Price adjustment request within 7 days — should APPROVE store credit",
+        "description": "Price adjustment within 7 days — APPROVE store credit",
         "expected_decision": "approve",
         "expected_has_citations": True,
         "expected_clarifying_questions": False,
@@ -361,11 +342,9 @@ TEST_CASES = [
             "carrier": "UPS", "tracking_number": "TRK019",
         },
     },
-
-    # ── FREE SHIPPING THRESHOLD ──
     {
         "id": "TC-020",
-        "description": "Customer asking about free shipping for $55 order — informational",
+        "description": "Free shipping threshold inquiry — $55 order",
         "expected_decision": "need_more_info",
         "expected_has_citations": True,
         "expected_clarifying_questions": False,
@@ -381,8 +360,16 @@ TEST_CASES = [
     },
 ]
 
+# Decisions considered "close enough" to count as correct
+_ADJACENT = {
+    ("approve",        "partial"):       True,
+    ("partial",        "approve"):       True,
+    ("escalate",       "need_more_info"): True,
+    ("need_more_info", "escalate"):       True,
+}
 
-# ─── Evaluation Runner ────────────────────────────────────────────────────────
+
+# ─── Runner ───────────────────────────────────────────────────────────────────
 
 def run_evaluation():
     results = []
@@ -390,18 +377,24 @@ def run_evaluation():
     citation_present = 0
     clarifying_when_needed = 0
     cases_needing_clarification = 0
-    hallucination_flags = 0
+    compliance_passes = 0
     times = []
     errors = []
 
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("RUNNING EVALUATION — 20 TEST CASES")
-    print("="*70)
+    if INTER_CASE_DELAY > 0:
+        print(f"Inter-case delay: {INTER_CASE_DELAY}s  (use --fast to disable)")
+    print("=" * 70)
 
     for i, tc in enumerate(TEST_CASES, 1):
         print(f"\n[{i:02d}/{len(TEST_CASES)}] {tc['id']}: {tc['description']}")
-        start = time.time()
 
+        # ── Rate-limit protection: pause between cases ────────────────────
+        if i > 1 and INTER_CASE_DELAY > 0:
+            time.sleep(INTER_CASE_DELAY)
+
+        start = time.time()
         try:
             result = run_pipeline(
                 ticket_dict={"message": tc["ticket"]},
@@ -411,52 +404,42 @@ def run_evaluation():
             elapsed = round(time.time() - start, 2)
             times.append(elapsed)
 
-            actual_decision = result.get("decision", "")
-            expected_decision = tc["expected_decision"]
-            has_citations = len(result.get("citations", [])) > 0
-            has_clarifying = len(result.get("clarifying_questions", [])) > 0
-            compliance_passed = result.get("compliance_passed", False)
-
-            # Score decision (allow partial matches for adjacent decisions)
-            ADJACENT = {
-                ("approve", "partial"): True,
-                ("partial", "approve"): True,
-                ("escalate", "need_more_info"): True,
-                ("need_more_info", "escalate"): True,
-            }
+            actual   = result.get("decision", "")
+            expected = tc["expected_decision"]
             decision_match = (
-                actual_decision == expected_decision
-                or ADJACENT.get((actual_decision, expected_decision), False)
+                actual == expected
+                or _ADJACENT.get((actual, expected), False)
             )
+            has_citations  = len(result.get("citations", [])) > 0
+            has_clarifying = len(result.get("clarifying_questions", [])) > 0
+            compliance_ok  = result.get("compliance_passed", False)
 
-            if decision_match:
-                decision_correct += 1
-            if has_citations:
-                citation_present += 1
-            if not compliance_passed:
-                hallucination_flags += 1
+            if decision_match:  decision_correct += 1
+            if has_citations:   citation_present += 1
+            if compliance_ok:   compliance_passes += 1
             if tc["expected_clarifying_questions"]:
                 cases_needing_clarification += 1
                 if has_clarifying:
                     clarifying_when_needed += 1
 
             status = "PASS" if decision_match else "FAIL"
-            print(f"  Status: {status} | Expected: {expected_decision} | Got: {actual_decision} | Time: {elapsed}s")
-            if not decision_match:
-                print(f"  ! Decision mismatch")
+            print(f"  {status} | expected={expected} | got={actual} | "
+                  f"citations={has_citations} | compliance={compliance_ok} | {elapsed}s")
 
             results.append({
-                "test_id": tc["id"],
-                "description": tc["description"],
-                "expected_decision": expected_decision,
-                "actual_decision": actual_decision,
-                "decision_correct": decision_match,
-                "has_citations": has_citations,
+                "test_id":          tc["id"],
+                "description":      tc["description"],
+                "expected_decision": expected,
+                "actual_decision":   actual,
+                "decision_correct":  decision_match,
+                "has_citations":     has_citations,
                 "has_clarifying_questions": has_clarifying,
-                "compliance_passed": compliance_passed,
-                "confidence_score": result.get("confidence_score", 0),
-                "processing_time": elapsed,
+                "compliance_passed": compliance_ok,
+                "confidence_score":  result.get("confidence_score", 0),
+                "processing_time":   elapsed,
                 "retrieved_policies": result.get("retrieved_policies", []),
+                # Include first citation for quality audit
+                "sample_citation":   result["citations"][0] if result.get("citations") else None,
             })
 
         except Exception as e:
@@ -472,38 +455,39 @@ def run_evaluation():
                 "processing_time": elapsed,
             })
 
-    # ─── Print Summary ────────────────────────────────────────────────────────
+    # ── Summary ───────────────────────────────────────────────────────────
     n = len(TEST_CASES)
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("EVALUATION SUMMARY")
-    print("="*70)
-    print(f"Decision accuracy:        {decision_correct}/{n} = {decision_correct/n:.0%}")
-    print(f"Citation presence rate:   {citation_present}/{n} = {citation_present/n:.0%}")
-    print(f"Compliance pass rate:     {n - hallucination_flags}/{n} = {(n-hallucination_flags)/n:.0%}")
-    if cases_needing_clarification > 0:
-        print(f"Clarifying Q rate:        {clarifying_when_needed}/{cases_needing_clarification} = {clarifying_when_needed/cases_needing_clarification:.0%}")
-    print(f"Errors:                   {len(errors)}/{n}")
-    print(f"Avg processing time:      {statistics.mean(times):.2f}s")
-    print(f"Median processing time:   {statistics.median(times):.2f}s")
-    print(f"Total time:               {sum(times):.1f}s")
+    print("=" * 70)
+    print(f"Decision accuracy:      {decision_correct}/{n} = {decision_correct/n:.0%}")
+    print(f"Citation presence rate: {citation_present}/{n} = {citation_present/n:.0%}")
+    print(f"Compliance pass rate:   {compliance_passes}/{n} = {compliance_passes/n:.0%}")
+    if cases_needing_clarification:
+        print(f"Clarifying Q rate:      {clarifying_when_needed}/{cases_needing_clarification}"
+              f" = {clarifying_when_needed/cases_needing_clarification:.0%}")
+    print(f"Errors:                 {len(errors)}/{n}")
+    if times:
+        print(f"Avg time per case:      {statistics.mean(times):.2f}s")
+        print(f"Median time per case:   {statistics.median(times):.2f}s")
+        print(f"Total wall time:        {sum(times):.1f}s")
 
     summary = {
-        "timestamp": datetime.now().isoformat(),
-        "total_cases": n,
-        "decision_accuracy": decision_correct / n,
-        "citation_presence_rate": citation_present / n,
-        "compliance_pass_rate": (n - hallucination_flags) / n,
-        "error_count": len(errors),
-        "avg_processing_time_seconds": statistics.mean(times),
-        "median_processing_time_seconds": statistics.median(times),
-        "results": results,
-        "errors": errors,
+        "timestamp":               datetime.now().isoformat(),
+        "total_cases":             n,
+        "decision_accuracy":       decision_correct / n,
+        "citation_presence_rate":  citation_present / n,
+        "compliance_pass_rate":    compliance_passes / n,
+        "error_count":             len(errors),
+        "avg_processing_time_sec": statistics.mean(times) if times else 0,
+        "inter_case_delay_sec":    INTER_CASE_DELAY,
+        "results":                 results,
+        "errors":                  errors,
     }
 
-    output_path = Path("evaluation_results.json")
-    with open(output_path, "w") as f:
-        json.dump(summary, f, indent=2, default=str)
-    print(f"\nFull results saved to: {output_path}")
+    out = Path("evaluation_results.json")
+    out.write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
+    print(f"\nFull results saved to: {out.resolve()}")
     return summary
 
 

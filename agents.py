@@ -1,69 +1,166 @@
-"""
-agents.py — The four core agents.
-
-Each agent is a pure function: (AgentState) → AgentState.
-LangGraph calls them as graph nodes.
-
-LLM: Gemini 2.5 Flash (free tier via Google AI Studio)
-"""
-
 import json
 import os
 import re
+import time
+import logging
 from typing import Any
 
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from dotenv import load_dotenv
 
 from schemas import (
-    AgentState,
-    TriageResult,
-    RetrievalResult,
-    ResolutionDraft,
-    ComplianceResult,
-    ComplianceFlag,
-    Citation,
-    FinalResolution,
+    AgentState, TriageResult, RetrievalResult, ResolutionDraft,
+    ComplianceResult, ComplianceFlag, Citation, FinalResolution,
 )
 from retriever import retriever
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
-# ─── LLM Setup ────────────────────────────────────────────────────────────────
-# temperature=0 for deterministic, policy-grounded responses
-# No creativity wanted here — we need precise, consistent decisions.
 
-def get_llm():
-    return ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
-        google_api_key=os.getenv("GOOGLE_API_KEY"),
-        temperature=0.0,
-        convert_system_message_to_human=True,
-    )
+# ══════════════════════════════════════════════════════════════════════════════
+# MULTI-PROVIDER LLM FALLBACK CHAIN
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Provider priority order (all free):
+#   1. Gemini 2.5 Flash   — primary
+#   2. Gemini 2.5 Pro     — fallback 1
+#   3. Groq Llama 3.3 70B     — fallback 2
+#   4. Groq Llama 3.1 8B  — fallback 
+#
+# Add keys to .env:
+#   GOOGLE_API_KEY=...
+#   GROQ_API_KEY=...       ← free at console.groq.com
+#
+# The fallback fires ONLY on rate-limit or quota errors — not on JSON parse
+# errors (those are retried on the same provider with a prompt tweak).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Errors that signal "try next provider" vs "something else is wrong"
+_RATE_LIMIT_SIGNALS = (
+    "429", "quota", "rate limit", "resource exhausted",
+    "too many requests", "rate_limit_exceeded", "overloaded",
+)
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return any(sig in msg for sig in _RATE_LIMIT_SIGNALS)
+
+
+def _build_provider_chain() -> list:
+    chain = []
+
+    google_key = os.getenv("GOOGLE_API_KEY")
+    groq_key   = os.getenv("GROQ_API_KEY")
+
+    if google_key:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+
+        chain.append((
+            "gemini",  # ← vendor tag
+            "Gemini 2.5 Flash",
+            lambda: ChatGoogleGenerativeAI(
+                model="gemini-2.5-flash",
+                google_api_key=google_key,
+                temperature=0.0,
+                convert_system_message_to_human=True,
+            )
+        ))
+
+        chain.append((
+            "gemini",
+            "Gemini 2.5 Pro",
+            lambda: ChatGoogleGenerativeAI(
+                model="gemini-2.5-pro",
+                google_api_key=google_key,
+                temperature=0.0,
+                convert_system_message_to_human=True,
+            )
+        ))
+
+    if groq_key:
+        from langchain_groq import ChatGroq
+
+        chain.append((
+            "groq",
+            "Groq Llama 3.3 70B",
+            lambda: ChatGroq(
+                model="llama-3.3-70b-versatile",
+                groq_api_key=groq_key,
+                temperature=0.0,
+            )
+        ))
+
+        chain.append((
+            "groq",
+            "Groq Llama 3.1 8B",
+            lambda: ChatGroq(
+                model="llama-3.1-8b-instant",
+                groq_api_key=groq_key,
+                temperature=0.0,
+            )
+        ))
+
+    return chain
+
+
+# Build the chain once at module load
+_PROVIDER_CHAIN = _build_provider_chain()
+logger.info(f"LLM provider chain: {[provider_name for _, provider_name, _ in _PROVIDER_CHAIN]}")
 
 
 def _call_llm_json(system_prompt: str, user_prompt: str) -> dict:
-    """
-    Call Gemini and parse JSON response. Strips markdown fences if present.
-    Raises ValueError if response is not valid JSON.
-    """
-    llm = get_llm()
-    messages = [
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=user_prompt),
-    ]
-    response = llm.invoke(messages)
-    raw = response.content.strip()
+    last_error = None
+    blocked_vendors = set()  # ← KEY ADDITION
 
-    # Strip markdown code fences if model wrapped the JSON
-    raw = re.sub(r"^```(?:json)?\s*", "", raw)
-    raw = re.sub(r"\s*```$", "", raw)
+    for vendor, provider_name, factory in _PROVIDER_CHAIN:
 
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"LLM returned invalid JSON: {e}\nRaw response:\n{raw}")
+        # 🚫 Skip blocked vendors (e.g. Gemini after rate limit)
+        if vendor in blocked_vendors:
+            continue
+
+        llm = factory()
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt),
+        ]
+
+        for attempt in range(2):
+            try:
+                response = llm.invoke(messages)
+                raw = response.content.strip()
+
+                raw = re.sub(r"^```(?:json)?\s*", "", raw)
+                raw = re.sub(r"\s*```$", "", raw).strip()
+
+                return json.loads(raw)
+
+            except json.JSONDecodeError as e:
+                if attempt == 0:
+                    logger.warning(f"[{provider_name}] JSON error → retrying")
+                    messages.append(HumanMessage(
+                        content="Return ONLY valid JSON."
+                    ))
+                    continue
+                else:
+                    last_error = e
+                    break
+
+            except Exception as e:
+                if _is_rate_limit_error(e):
+                    logger.warning(f"[{provider_name}] Rate limited → blocking vendor '{vendor}'")
+
+                    # 🚨 BLOCK ENTIRE VENDOR
+                    blocked_vendors.add(vendor)
+
+                    last_error = e
+                    break  # move to next provider (different vendor)
+
+                else:
+                    raise
+
+    raise RuntimeError(f"All providers exhausted. Last error: {last_error}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -96,11 +193,8 @@ OUTPUT FORMAT (strict JSON):
 
 
 def triage_agent(state: AgentState) -> AgentState:
-    """
-    Agent 1: Classify ticket, extract facts, identify gaps, generate retrieval queries.
-    """
     ticket = state.ticket
-    order = ticket.order_context
+    order  = ticket.order_context
 
     user_prompt = f"""SUPPORT TICKET:
 Ticket ID: {ticket.ticket_id}
@@ -130,19 +224,23 @@ Analyze this ticket and return the JSON triage output."""
 # ══════════════════════════════════════════════════════════════════════════════
 
 def policy_retriever_agent(state: AgentState) -> AgentState:
-    """
-    Agent 2: Use triage queries to retrieve relevant policy chunks from FAISS.
-    No LLM call here — pure semantic search. Fast and deterministic.
-    """
+    """No LLM call — pure FAISS semantic search."""
     queries = state.triage.retrieval_queries
-    result = retriever.retrieve(queries)
-    state.retrieval = result
+    state.retrieval = retriever.retrieve(queries)
     return state
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # AGENT 3: RESOLUTION WRITER AGENT
 # ══════════════════════════════════════════════════════════════════════════════
+#
+# KEY CHANGE: Citation format is now strictly human-readable.
+# The prompt instructs the model to produce:
+#   "Policy Name – Section N (Topic Description)"
+# e.g. "Refund Policy – Section 1 (Eligibility Window)"
+#
+# Raw filenames like "refund_policy.txt (section 1)" are explicitly forbidden.
+# ─────────────────────────────────────────────────────────────────────────────
 
 RESOLUTION_SYSTEM_PROMPT = """You are a resolution writer for an e-commerce customer support system.
 
@@ -151,43 +249,52 @@ Your job is to write a complete resolution based STRICTLY on the provided policy
 ABSOLUTE RULES — VIOLATION OF THESE WILL CAUSE SYSTEM FAILURE:
 1. NEVER make any claim not directly supported by the provided policy context.
 2. EVERY factual statement in rationale and customer_response MUST have a citation.
-3. If the policy context does not cover the situation, set decision="escalate" and explain why.
+3. If the policy context does not cover the situation, set decision="escalate".
 4. If information is missing, set decision="need_more_info" and list clarifying_questions.
 5. Do NOT invent policy rules, numbers, or timeframes not present in the context.
-6. Write INSUFFICIENT_CONTEXT in rationale if you cannot find policy support for a decision.
+6. Write INSUFFICIENT_CONTEXT in rationale if you cannot find policy support.
 7. customer_response must be professional, empathetic, and clear. No jargon.
 8. Output ONLY valid JSON. No explanation, no markdown, no extra text.
 
-CITATION FORMAT: For each claim, reference the exact "POLICY SOURCE N: filename (section X)" label.
+CITATION FORMAT RULES (strictly enforced):
+- Source MUST follow this exact format:  "Policy Name – Section N (Topic Description)"
+- Examples of CORRECT sources:
+    "Refund Policy – Section 1 (Eligibility Window)"
+    "Shipping Policy – Section 3 (Lost Packages)"
+    "Cancellation Policy – Section 2 (Pre-Shipment Cancellations)"
+    "Compensation Policy – Section 1 (Compensation for Our Errors)"
+- NEVER include raw filenames (no ".txt", no underscores)
+- NEVER include chunk IDs or internal identifiers
+- Derive the Policy Name from the document title (e.g. "refund_policy" → "Refund Policy")
+- Derive the Topic Description from the section heading in the policy text
+- If a section number is not clear, use "Section 1"
 
 OUTPUT FORMAT (strict JSON):
 {
   "decision": "<approve|deny|partial|escalate|need_more_info>",
   "rationale": "<internal reasoning with policy references>",
   "citations": [
-    {"claim": "<specific claim>", "source": "<policy source>", "chunk_id": "<id>"}
+    {
+      "claim": "<specific claim being supported>",
+      "source": "<Policy Name – Section N (Topic Description)>",
+      "chunk_id": "<copy chunk_id from the POLICY SOURCE label, e.g. refund_policy.txt::chunk_0>"
+    }
   ],
   "customer_response": "<friendly customer-facing reply>",
   "internal_notes": "<notes for support team>",
-  "clarifying_questions": ["<question1>"],
+  "clarifying_questions": [],
   "confidence_score": 0.95
 }"""
 
 
 def resolution_writer_agent(state: AgentState) -> AgentState:
-    """
-    Agent 3: Draft a complete resolution using retrieved policy context.
-    Strictly grounded — cites every claim.
-    """
-    ticket = state.ticket
-    order = ticket.order_context
-    triage = state.triage
+    ticket   = state.ticket
+    order    = ticket.order_context
+    triage   = state.triage
     retrieval = state.retrieval
 
-    # Build context string from retrieved chunks
     policy_context = retriever.format_context(retrieval)
 
-    # If no relevant policy found, escalate immediately
     if retrieval.total_retrieved == 0:
         state.draft = ResolutionDraft(
             decision="escalate",
@@ -195,7 +302,7 @@ def resolution_writer_agent(state: AgentState) -> AgentState:
             citations=[],
             customer_response=(
                 f"Dear {order.customer_name},\n\n"
-                "Thank you for reaching out. Your case requires review by our specialized team. "
+                "Thank you for reaching out. Your case requires review by our specialised team. "
                 "A senior support agent will contact you within 1 business day.\n\n"
                 "Best regards,\nSupport Team"
             ),
@@ -230,11 +337,11 @@ MISSING INFORMATION:
 RETRIEVED POLICY CONTEXT (use ONLY this to make decisions):
 {policy_context}
 
-Write the complete resolution JSON. Remember: cite every factual claim."""
+Write the complete resolution JSON.
+IMPORTANT: Every citation source MUST be formatted as "Policy Name – Section N (Topic)"."""
 
     result_dict = _call_llm_json(RESOLUTION_SYSTEM_PROMPT, user_prompt)
 
-    # Parse citations carefully
     raw_citations = result_dict.pop("citations", [])
     citations = []
     for c in raw_citations:
@@ -288,17 +395,13 @@ OUTPUT FORMAT:
 
 
 def compliance_agent(state: AgentState) -> AgentState:
-    """
-    Agent 4: Verify the draft against retrieved policy.
-    Sets requires_rewrite=True if hallucinations or missing citations found.
-    """
-    draft = state.draft
+    draft    = state.draft
     retrieval = state.retrieval
 
     policy_context = retriever.format_context(retrieval)
-    citations_str = json.dumps(
+    citations_str  = json.dumps(
         [{"claim": c.claim, "source": c.source} for c in draft.citations],
-        indent=2
+        indent=2,
     )
 
     user_prompt = f"""RESOLUTION DRAFT TO CHECK:
@@ -337,20 +440,15 @@ Verify every claim. Return the compliance JSON."""
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# FINALIZER NODE (not an agent — just assembles the final output)
+# FINALIZER
 # ══════════════════════════════════════════════════════════════════════════════
 
 def finalizer_node(state: AgentState) -> AgentState:
-    """
-    Assemble everything into the FinalResolution object.
-    Uses compliance-revised response if available.
-    """
-    draft = state.draft
-    triage = state.triage
+    draft      = state.draft
+    triage     = state.triage
     compliance = state.compliance
-    retrieval = state.retrieval
+    retrieval  = state.retrieval
 
-    # Use compliance-revised response if the compliance agent made a minor fix
     final_response = (
         compliance.revised_customer_response
         if compliance and compliance.revised_customer_response
