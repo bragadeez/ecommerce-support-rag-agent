@@ -1,0 +1,16 @@
+langchain>=0.2.0
+langchain-google-genai>=1.0.0
+langchain-community>=0.2.0
+langgraph>=0.1.0
+sentence-transformers>=2.7.0
+faiss-cpu>=1.8.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+fastapi>=0.111.0
+uvicorn>=0.30.0
+streamlit>=1.35.0
+pandas>=2.2.0
+numpy>=1.26.0
+tiktoken>=0.7.0
+colorama>=0.4.6
+rich>=13.7.0

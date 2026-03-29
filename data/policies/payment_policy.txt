@@ -1,0 +1,19 @@
+PAYMENT AND BILLING POLICY
+
+Accepted Payment Methods
+We accept Visa, Mastercard, American Express, Discover, PayPal, Apple Pay, Google Pay, and ShopEase store credit. We do not accept cryptocurrency, cash, checks, or money orders.
+
+Payment Security
+All transactions are processed through PCI-DSS compliant payment processors. We do not store full credit card numbers. Customers will never be asked to provide payment information through email or chat.
+
+Billing Disputes
+Customers who believe they have been incorrectly charged must notify us within 60 days of the charge date. We will investigate and respond within 5 business days. If the charge is confirmed incorrect, a full refund will be issued within 7-10 business days.
+
+Chargebacks
+Filing a chargeback without first contacting our support team may result in account suspension. We encourage customers to resolve disputes directly with us first. If a chargeback is filed and we determine the original charge was valid, we reserve the right to provide evidence to the payment processor.
+
+Failed Payments
+If a payment fails, the order will not be processed. Customers will be notified immediately to update their payment method. Orders are held for 24 hours; after that, items are returned to inventory.
+
+Price Adjustments
+If an item goes on sale within 7 days of purchase, customers may request a one-time price adjustment for the difference as store credit. Price adjustments are not available during major sale events (Black Friday, Cyber Monday, Holiday Sale).

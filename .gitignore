@@ -1,0 +1,12 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# VS Code settings
+.vscode/
+
+# Environment file
+.env
+
+# Vectorstore generated files
+data/vectorstore/
