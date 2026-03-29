@@ -153,14 +153,14 @@ with st.sidebar:
 4. Compliance Checker
 
 **Free models:**
-- LLM: Gemini 1.5 Flash
+- LLM: Gemini 2.5 Flash
 - Embeddings: all-MiniLM-L6-v2
 - Vector DB: FAISS (local)
     """)
 
 # ─── Main Layout ──────────────────────────────────────────────────────────────
 st.markdown('<div class="main-header">🛒 Support Resolution Agent</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Multi-agent RAG system · Gemini 1.5 Flash · FAISS · LangGraph</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">Multi-agent RAG system · Gemini 2.5 Flash · FAISS · LangGraph</div>', unsafe_allow_html=True)
 
 col1, col2 = st.columns([1, 1], gap="large")
 

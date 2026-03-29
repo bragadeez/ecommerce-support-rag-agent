@@ -4,7 +4,7 @@ agents.py — The four core agents.
 Each agent is a pure function: (AgentState) → AgentState.
 LangGraph calls them as graph nodes.
 
-LLM: Gemini 1.5 Flash (free tier via Google AI Studio)
+LLM: Gemini 2.5 Flash (free tier via Google AI Studio)
 """
 
 import json
