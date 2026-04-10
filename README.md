@@ -72,7 +72,7 @@ pip install -r requirements.txt
 
 ```bash
 # Creates sample policy documents + builds FAISS index
-python data_pipeline.py --create-sample-policies
+python -m pipelines.data_pipeline --create-sample-policies
 ```
 
 You should see:
@@ -88,13 +88,13 @@ Vector store built successfully.
 ## Running the System
 
 ```bash
-streamlit run ui.py
+streamlit run app/ui.py
 ```
 
 ## Running Evaluation
 
 ```bash
-python evaluate.py
+python -m pipelines.evaluate
 ```
 
 Runs 20 test cases and prints:
@@ -135,19 +135,25 @@ Results saved to `evaluation_results.json`.
 
 ```
 ecommerce-support-agent/
-├── schemas.py           # Pydantic models for all agent I/O
-├── data_pipeline.py     # Build FAISS vector store from policy docs
-├── retriever.py         # Semantic search wrapper
-├── agents.py            # All 4 agent implementations
-├── graph.py             # LangGraph state machine
-├── api.py               # FastAPI REST endpoint
-├── ui.py                # Streamlit frontend
-├── evaluate.py          # 20 test cases + metrics
+├── app/
+│   ├── api.py               # FastAPI entry point
+│   ├── ui.py                # Streamlit UI
+│   ├── agents.py            # Agent logic
+│   ├── graph.py             # Graph / orchestration logic
+│   ├── retriever.py         # Retrieval logic
+│   └── schemas.py           # Pydantic schemas
+├── pipelines/
+│   ├── data_pipeline.py     # Data preparation and vector store build
+│   ├── evaluate.py          # Evaluation workflow
+│   └── evaluation_results.json
+├── data/                    # Raw / processed data
+├── config/
+│   └── .env
+├── .vscode/
+├── __pycache__/
+├── .gitignore
 ├── requirements.txt
-├── .env.example
-└── data/
-    ├── policies/        # .txt policy documents
-    └── vectorstore/     # FAISS index
+├── README.md
 ```
 
 ## Hallucination Prevention

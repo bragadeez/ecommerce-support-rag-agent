@@ -8,9 +8,15 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from dotenv import load_dotenv
 
-from schemas import PolicyChunk, RetrievalResult
+try:
+    from .schemas import PolicyChunk, RetrievalResult
+except ImportError:
+    from schemas import PolicyChunk, RetrievalResult
 
 load_dotenv()
+config_env = Path("config/.env")
+if config_env.exists():
+    load_dotenv(config_env, override=False)
 
 VECTOR_DB_PATH = Path(os.getenv("VECTOR_DB_PATH", "./data/vectorstore"))
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")

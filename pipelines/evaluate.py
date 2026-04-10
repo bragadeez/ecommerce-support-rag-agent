@@ -13,7 +13,7 @@ import statistics
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from graph import run_pipeline
+from app.graph import run_pipeline
 
 # ─── CLI Args ─────────────────────────────────────────────────────────────────
 parser = argparse.ArgumentParser()

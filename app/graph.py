@@ -1,14 +1,24 @@
 from langgraph.graph import StateGraph, END
 from typing import Literal
 
-from schemas import AgentState
-from agents import (
-    triage_agent,
-    policy_retriever_agent,
-    resolution_writer_agent,
-    compliance_agent,
-    finalizer_node,
-)
+try:
+    from .schemas import AgentState
+    from .agents import (
+        triage_agent,
+        policy_retriever_agent,
+        resolution_writer_agent,
+        compliance_agent,
+        finalizer_node,
+    )
+except ImportError:
+    from schemas import AgentState
+    from agents import (
+        triage_agent,
+        policy_retriever_agent,
+        resolution_writer_agent,
+        compliance_agent,
+        finalizer_node,
+    )
 
 MAX_RETRIES = 2
 
@@ -125,7 +135,10 @@ def run_pipeline(ticket_dict: dict, order_dict: dict, ticket_id: str = "TICKET-0
     """
     Main entry point. Takes raw dicts (from API/UI) and returns final resolution dict.
     """
-    from schemas import SupportTicket, OrderContext
+    try:
+        from .schemas import SupportTicket, OrderContext
+    except ImportError:
+        from schemas import SupportTicket, OrderContext
 
     order = OrderContext(**order_dict)
     ticket = SupportTicket(

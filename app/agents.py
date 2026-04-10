@@ -3,18 +3,30 @@ import os
 import re
 import time
 import logging
+from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from dotenv import load_dotenv
 
-from schemas import (
-    AgentState, TriageResult, RetrievalResult, ResolutionDraft,
-    ComplianceResult, ComplianceFlag, Citation, FinalResolution,
-)
-from retriever import retriever
+try:
+    from .schemas import (
+        AgentState, TriageResult, RetrievalResult, ResolutionDraft,
+        ComplianceResult, ComplianceFlag, Citation, FinalResolution,
+    )
+    from .retriever import retriever
+except ImportError:
+    from schemas import (
+        AgentState, TriageResult, RetrievalResult, ResolutionDraft,
+        ComplianceResult, ComplianceFlag, Citation, FinalResolution,
+    )
+    from retriever import retriever
 
 load_dotenv()
+# Support config/.env when project is organized under ecommerce-suite layout
+config_env = Path("config/.env")
+if config_env.exists():
+    load_dotenv(config_env, override=False)
 logger = logging.getLogger(__name__)
 
 
@@ -108,6 +120,11 @@ def _build_provider_chain() -> list:
 # Build the chain once at module load
 _PROVIDER_CHAIN = _build_provider_chain()
 logger.info(f"LLM provider chain: {[provider_name for _, provider_name, _ in _PROVIDER_CHAIN]}")
+
+if not _PROVIDER_CHAIN:
+    raise RuntimeError(
+        "No LLM providers configured. Set GOOGLE_API_KEY and/or GROQ_API_KEY in config/.env or .env."
+    )
 
 GLOBAL_BLOCKED_VENDORS = set()
 def _call_llm_json(system_prompt: str, user_prompt: str) -> dict:

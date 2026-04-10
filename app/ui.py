@@ -3,7 +3,10 @@ import time
 import streamlit as st
 from datetime import datetime, timedelta, date
 
-from graph import run_pipeline
+try:
+    from .graph import run_pipeline
+except ImportError:
+    from graph import run_pipeline
 
 # ─── Page Config ──────────────────────────────────────────────────────────────
 st.set_page_config(

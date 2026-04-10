@@ -10,6 +10,9 @@ from sentence_transformers import SentenceTransformer
 from dotenv import load_dotenv
 
 load_dotenv()
+config_env = Path("config/.env")
+if config_env.exists():
+    load_dotenv(config_env, override=False)
 
 POLICY_DOCS_PATH = Path(os.getenv("POLICY_DOCS_PATH", "./data/policies"))
 VECTOR_DB_PATH = Path(os.getenv("VECTOR_DB_PATH", "./data/vectorstore"))
